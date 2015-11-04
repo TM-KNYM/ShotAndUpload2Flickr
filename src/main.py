@@ -1,6 +1,5 @@
 # coding: utf-8
 
-
 def loadSettings():
     import ConfigParser
     inifile = ConfigParser.SafeConfigParser()
@@ -20,7 +19,6 @@ def verifyWriteAuth(flickr):
 
 def genTimeStamp():
     u'''
-
         generate timestamp 
         >>> 
         >>>
@@ -28,13 +26,21 @@ def genTimeStamp():
     from datetime import datetime
     return unicode(datetime.now().strftime("%y%m/%d_%H:%M:%S"))
 
+def genCaptureName():
+    prefix=u'.jpg'
+    ts = genTimeStamp()
+    return ts+prefix
+
 
 def genGallaryName():
     prefix=u'360'
     ts = genTimeStamp()
-
     return prefix + ts
 
+def addPhoto2Gallary(flickr, key, photoId, galleryId):
+    return flickr.galleries.addPhoto(api_key=key,
+                                gallery_id=galleryId,
+                                photo_id=photoId)
 def createGallary(flickr, title, key):
     return flickr.galleries.create(api_key=key,
                                 title=title,
@@ -46,8 +52,9 @@ def uploadPhoto(key, secret, filename):
 if __name__ == "__main__":
     import flickrapi
     import webbrowser
-    import picamera
-    
+    #import picamera
+    import sys
+
     #verify check
     setting = loadSettings()
     print(setting)
@@ -56,21 +63,27 @@ if __name__ == "__main__":
         verifyWriteAuth(flickr)
 
 
-    #res =  createGallary(flickr, gName, setting['key'])
     #galry_id = res['gallery']['id']
-    counter =1000;
+    counter = int(sys.argv[1]);
     #createGallary
     gName = genGallaryName()
-    
+    res = createGallary(flickr, gName, setting['key'])
+    import json
+    print res
+    galleryid = json.loads(res)[u'gallery'][u'id']
 
-    while(counter!=0):
-        with picamera.PiCamera() as camera:
-            camera.resolution = (2592, 1944)
-
-    # take photo
-    path = u'360.jpg'
-    res = uploadPhoto(setting['key'], setting['secret'],path)
-    #upload photo to created gallary
-    # photo add gallary
+    for x in range(0,counter):
+        #with picamera.PiCamera() as camera:
+            # take photo
+            #camera.resolution = (2592, 1944)
+            #capName=genCaptureName()
+            #camera.capture(capName)
+            capName = u'360.jpg'
+            res = uploadPhoto(setting['key'], setting['secret'],capName)
+            photoid = int(res[0].text)
+            res = addPhoto2Gallary(flickr, setting['key'], photoid,galleryid)
+            print res
+            #upload photo to created gallary
+            # photo add gallary
     
 
