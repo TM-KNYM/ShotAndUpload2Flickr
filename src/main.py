@@ -32,16 +32,22 @@ def genCaptureName():
     return ts+prefix
 
 
-def genGallaryName():
-    prefix=u'360'
+def genPhotosetName():
+    prefix=u'360_'
     ts = genTimeStamp()
     return prefix + ts
 
-def addPhoto2Gallary(flickr, key, photoId, galleryId):
-    return flickr.galleries.addPhoto(api_key=key,
-                                gallery_id=galleryId,
-                                photo_id=photoId)
-def createGallary(flickr, title, key):
+def createPhotoSet(flickr, key, title, photoId):
+    return flickr.photosets.create(api_key=key,
+                                  title=title,
+                                  primary_photo_id=photoId)
+
+
+def addPhoto2Photoset(flickr, key, photoId, photosetId):
+    return flickr.photosets.addPhoto(api_key=key,
+                                photo_id=photoId,
+                                photoset_id=photosetId)
+def createGallery(flickr, title, key):
     return flickr.galleries.create(api_key=key,
                                 title=title,
                                 description='store')
@@ -65,12 +71,14 @@ if __name__ == "__main__":
 
     #galry_id = res['gallery']['id']
     counter = int(sys.argv[1]);
-    #createGallary
-    gName = genGallaryName()
-    res = createGallary(flickr, gName, setting['key'])
+    #createGallery
+    gName = genPhotosetName()
+    res = createPhotoSet(flickr,  setting['key'],gName, u'22738376382')
     import json
     print res
-    galleryid = json.loads(res)[u'gallery'][u'id']
+    photosetId = json.loads(res)[u'photoset'][u'id']
+
+    print('XXXXXXXX  '+photosetId)
 
     for x in range(0,counter):
         #with picamera.PiCamera() as camera:
@@ -80,8 +88,11 @@ if __name__ == "__main__":
             #camera.capture(capName)
             capName = u'360.jpg'
             res = uploadPhoto(setting['key'], setting['secret'],capName)
-            photoid = int(res[0].text)
-            res = addPhoto2Gallary(flickr, setting['key'], photoid,galleryid)
+            photoid = res[0].text
+            print '  '
+            print res
+            print photoid
+            res = addPhoto2Photoset(flickr, setting['key'], photoid,photosetId)
             print res
             #upload photo to created gallary
             # photo add gallary
