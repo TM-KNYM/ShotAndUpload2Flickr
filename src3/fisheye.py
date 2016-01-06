@@ -7,38 +7,41 @@ import math
 def load_image(fp):
     return Image.open(fp)
 
+
 def create_blank_image(w, h):
     return np.zeros((h, w, 3), np.uint8)
 
-class FisheyeCorrectionCommand():
 
-    def __init__(self):
-        self._x = 0
-        self._y = 0
-        self._r = 0
+class EllipseShiftCalculator():
+
+    def __init__(self, r, longSide, shortSide):
+        self._r = r
+        self._a = longSide
+        self._b = shortSide
 
     def setPos(self, x, y):
         self._x = x
         self._y = y
 
-    def setRadius(self, r):
-        self._r = r
-
     def canExecute(self):
         x = self._x  # x pos
         y = self._y  # y pos
         r = self._r
-        return (r*r) > (x*x)+(y*y)
+
+        if (r*r) <= (x*x)+(y*y):
+            return False
+        if math.sqrt(x*x + y*y) <= 0:
+            return False
+        return True
 
     def execute(self):
         x = self._x   # x pos
         y = self._y  # y pos
         r = self._r  # raidus
-        a = 350  # Ellipse long side (summit)
-        b = 132  # Ellipse short side (base)
+        a = self._a  # Ellipse long side (summit)
+        b = self._b  # Ellipse short side (base)
         # slope of vertex
         M = math.sqrt(r*r - (x*x + y*y))/math.sqrt(x*x + y*y)
-        sx = 0
         sx = math.sqrt((a*a*b*b)/(b*b+a*a*M*M))
         sy = sx*M
         sx = x * sx / math.sqrt((x*x) + (y*y))
@@ -68,92 +71,82 @@ def createPx2CoFunc(center_x, center_y):
     return px2coordinate
 
 
-class cmd_executor():
+class ImageShifter():
 
-    def __init__(self, r, px2co):
+    def __init__(self, calc, px2co, co2px):
         self.px2co = px2co
-        self.cmd = FisheyeCorrectionCommand()
-        self.cmd.setRadius(r)
+        self.co2px = co2px
+        self.cmd = calc
         self.tmp_list = []
-        self.center_x = center_x
-        self.center_y = center_y
         print('cmd init')
 
-    def execute(self, pos):
-        x = pos[0]
-        y = pos[1]
-        cx, cy = self.px2co(x, y)
-        cmd = self.cmd
-        cmd.setPos(cx, cy)
-        if cmd.canExecute() is True:
-            new_point = cmd.execute()
-            return {'srcX': int(x), 'srcY': int(y), 'dst_x': int(new_point[0]), 'dst_y': int(new_point[1])}
-        else:
-            return None
+    def createMap(self, srcImg):
+        w, h, clr = srcImg.shape
+        pxMap = []
+        for y in range(0, h):
+            for x in range(0, w):
+                cx, cy = self.px2co(x, y)
+                cmd = self.cmd
+                cmd.setPos(cx, cy)
+                if cmd.canExecute() is True:
+                    dst_x, dst_y = cmd.execute()
+                    dst_x, dst_y = self.co2px(dst_x, dst_y)
+                    pxMap.append({'src': (x, y), 'dst': (dst_x, dst_y)})
+        return pxMap
 
-if __name__ == '__main__':
-    # fp = '360.jpg'
-    fp = 'sample.jpg'
+
+def doFisheyeCorrection(fp, peripheral_mag, center_mag, op, resizes=None):
     im = load_image(fp)
-    rim = im.resize((701, 701))
-    dat = np.asarray(rim, dtype=np.uint8)
-    print(dat.shape)
-    shape = dat.shape
+    if resizes is not None:
+        im = im.resize(resizes)
+    srcImg = np.asarray(im, dtype=np.uint8)
+    print(srcImg.shape)
+    shape = srcImg.shape
     org_w, org_h, clr = shape
 
-    # convert
-    r = org_w/2.0
+    # shift
+    r = int(org_w/2.0)
+    longSide = int(r * peripheral_mag)
+    shortSide = int(r * center_mag)
     center_x = r
     center_y = r
     px2co = createPx2CoFunc(center_x, center_y)
-    exe = cmd_executor(r, px2co)
-    px_list = list(filter(lambda val: (val is not None), [exe.execute((x, y)) for x in range(0, org_w) for y in range(0, org_h)]))
-    x_list = [px['dst_x'] for px in px_list]
-    y_list = [py['dst_y'] for py in px_list]
 
-    # calc width & height
-    w = max(x_list) - min(x_list)
-    h = max(y_list) - min(y_list)
-    print(str(w) + ' :: ' + str(h))
-    bImg = create_blank_image(w, h)
-    pxEnableMap = np.zeros((h, w), dtype=bool)
-    co2px = createCo2PxFunc(w, h)
-    for px in px_list:
-        dstX, dstY = co2px(px['dst_x'], px['dst_y'])
-        bImg[dstY][dstX] = dat[px['srcY']][px['srcX']]
-        pxEnableMap[dstY][dstX] = True
-    for y in range(0, h-1):
-        tmpColor = None
-        for x in range(0, w-1):
-            if pxEnableMap[y][x] == True:
-                tmpColor = bImg[y][x]
-            elif tmpColor is not None:
-                bImg[y][x] = tmpColor
+    calc = EllipseShiftCalculator(r, longSide, shortSide)
 
-    '''
-    from queue import Queue
-    q = Queue()
+    # create dst image
+    side = longSide*2
+    resultImg = create_blank_image(side, side)
+    co2px = createCo2PxFunc(side, side)
 
-    def worker():
-        while True:
-            y = q.get()
-            oneLineProcess(y)
-            q.task_done()
-    import threading
-    for i in range(2):
-        t = threading.Thread(target=worker)
-        t.deamon = True
-        t.start()
-    tmp_cl = [0, 0, 0]
-    for y in range(0, h):
-        q.put(y)
-    q.join()
-    '''
+    exe = ImageShifter(calc, px2co, co2px)
+    pxMap = exe.createMap(srcImg)  # out put img
 
-    out = Image.fromarray(np.uint8(bImg))
-    out.save('test.jpg', 'JPEG')
-    # import scipy as sp
-    # import scipy.misc
-    # sp.misc.imsave('test.jpg', bImg)
+    for px in pxMap:
+        dx, dy = px['dst']
+        sx, sy = px['src']
+        resultImg[dx][dy] = srcImg[sx][sy]
+    w, h, tmp = resultImg.shape
+
+    # expand 360 from 180
+    left_img = create_blank_image(int(w/2), h)
+    right_img = create_blank_image(int(w/2), h)
+    print(left_img.shape)
+    print(right_img.shape)
+    resultImg = np.hstack((np.hstack((left_img, resultImg)), right_img))
+    print(resultImg.shape)
+
+    from PIL import ImageFilter
+    Image.fromarray(np.uint8(resultImg)).filter(ImageFilter.GaussianBlur).filter(ImageFilter.MedianFilter(size=5)).save(op, 'JPEG')
+
+if __name__ == '__main__':
+    # load img date
+    # fp = 'koala.jpg'
+    # args
+    fp = 'koala.jpg'
+    peripheral_mag = 0.8
+    center_mag = 0.3
+    op = 'result.jpg'
+    result = doFisheyeCorrection(fp, peripheral_mag, center_mag, op, resizes=(1800, 1800))
 
     print('comp')
